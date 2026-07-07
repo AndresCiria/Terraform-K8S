@@ -87,70 +87,74 @@ resource "null_resource" "helm_repos" {
 
 # 4. Desplegar PLG Stack con Helm (usando null_resource)
 resource "null_resource" "deploy_plg" {
-  depends_on = [null_resource.helm_repos]
+  depends_on = [null_resource.wait_for_cluster]
   count      = var.enable_observability ? 1 : 0
-  
+
   provisioner "local-exec" {
     command = <<-EOT
       export KUBECONFIG=${local.kubeconfig_path}
-      
+
       echo "📝 Creando namespace monitoring..."
       kubectl create namespace monitoring 2>/dev/null || true
-      
-      echo "📝 Instalando Loki (con los mismos parámetros que funcionaron manualmente)..."
-      helm upgrade --install loki grafana/loki \
-        --namespace monitoring \
-        --set deploymentMode=SingleBinary \
-        --set singleBinary.replicas=1 \
-        --set loki.commonConfig.replication_factor=1 \
-        --set loki.storage.type=filesystem \
-        --set persistence.enabled=false \
-        --wait
-      
-      echo "📝 Instalando Promtail..."
-      helm upgrade --install promtail grafana/promtail \
-        --namespace monitoring \
-        --set loki.serviceName=loki \
-        --set loki.scheme=http \
-        --wait
-      
-      echo "📝 Instalando Grafana..."
-      helm upgrade --install grafana grafana/grafana \
-        --namespace monitoring \
-        --set adminPassword=${var.grafana_admin_password} \
-        --set persistence.enabled=false \
-        --set service.type=NodePort \
-        --set service.nodePort=${var.grafana_port} \
-        --set datasources.prometheus.type=prometheus \
-        --set datasources.prometheus.url=http://prometheus-server:80 \
-        --set datasources.prometheus.isDefault=false \
-        --wait
-      
-      echo "✅ PLG Stack desplegado correctamente"
-    EOT
-  }
-}
 
-# 6. Desplegar Prometheus y kube-state-metrics
-resource "null_resource" "deploy_prometheus" {
-  depends_on = [null_resource.deploy_plg]
-  count      = var.enable_observability ? 1 : 0
-  
-  provisioner "local-exec" {
-    command = <<-EOT
-      export KUBECONFIG=${local.kubeconfig_path}
-      
-      echo "📝 Añadiendo repositorio prometheus-community..."
+      echo "📝 Añadiendo repositorios Helm..."
+      helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true
       helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
       helm repo update
-      
-      echo "📝 Instalando kube-state-metrics..."
-      helm upgrade --install kube-state-metrics prometheus-community/kube-state-metrics \
+
+      echo "📝 Instalando Loki (versión 5.42.0, sin gateway ni agente)..."
+      helm upgrade --install loki grafana/loki \
         --namespace monitoring \
-        --set replicas=1 \
+        --version 5.42.0 \
+        --set deploymentMode=SingleBinary \
+        --set loki.storage.type=filesystem \
+        --set persistence.enabled=false \
+        --set agent.enabled=false \
+        --set gateway.enabled=false \
         --wait
-      
-      echo "📝 Instalando Prometheus (modo simple)..."
+
+      echo "🧹 Eliminando agentes problemáticos de Loki..."
+      kubectl scale deployment loki-grafana-agent-operator -n monitoring --replicas=0 2>/dev/null || true
+      kubectl delete daemonset loki-logs -n monitoring 2>/dev/null || true
+
+      echo "📝 Instalando Promtail (con límite de archivos abiertos)..."
+      helm upgrade --install promtail grafana/promtail \
+        --namespace monitoring \
+        -f - <<YAML
+loki:
+  url: http://loki:3100
+config:
+  clients:
+    - url: http://loki:3100/loki/api/v1/push
+  scrape_configs:
+    - job_name: kubernetes-pods
+      kubernetes_sd_configs:
+        - role: pod
+      relabel_configs:
+        - source_labels: [__meta_kubernetes_namespace]
+          target_label: namespace
+        - source_labels: [__meta_kubernetes_pod_name]
+          target_label: pod
+        - source_labels: [__meta_kubernetes_pod_container_name]
+          target_label: container
+        # Elimina o comenta la siguiente línea para recoger TODOS los namespaces
+        # - action: keep
+        #   source_labels: [__meta_kubernetes_namespace]
+        #   regex: "^(default|monitoring)$"
+      max_open_files: 50
+      file_watch:
+        min_poll_frequency: 1s
+        max_poll_frequency: 30s
+resources:
+  limits:
+    memory: 128Mi
+    cpu: 200m
+  requests:
+    memory: 64Mi
+    cpu: 100m
+YAML
+
+      echo "📝 Instalando Prometheus y kube-state-metrics..."
       helm upgrade --install prometheus prometheus-community/prometheus \
         --namespace monitoring \
         --set alertmanager.enabled=false \
@@ -158,8 +162,50 @@ resource "null_resource" "deploy_prometheus" {
         --set server.persistentVolume.enabled=false \
         --set server.service.type=ClusterIP \
         --wait
-      
-      echo "✅ Prometheus y kube-state-metrics desplegados"
+
+      helm upgrade --install kube-state-metrics prometheus-community/kube-state-metrics \
+        --namespace monitoring \
+        --set replicas=1 \
+        --wait
+
+      echo "📝 Instalando Grafana con datasources preconfigurados..."
+      helm upgrade --install grafana grafana/grafana \
+        --namespace monitoring \
+        --set adminPassword=${var.grafana_admin_password} \
+        --set persistence.enabled=false \
+        --set service.type=NodePort \
+        --set service.nodePort=${var.grafana_port} \
+        --wait
+
+      echo "📝 Configurando datasources en Grafana..."
+      kubectl apply -f - <<YAML
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: monitoring
+  labels:
+    grafana_datasource: "1"
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Loki
+        type: loki
+        access: proxy
+        url: http://loki:3100
+        isDefault: true
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus-server:80
+        isDefault: false
+YAML
+
+      echo "🔄 Reiniciando Grafana para aplicar la configuración..."
+      kubectl rollout restart deployment grafana -n monitoring
+      kubectl port-forward -n monitoring svc/grafana 30001:80 --address=0.0.0.0
+      echo "✅ PLG Stack y Prometheus desplegados correctamente"
     EOT
   }
 }

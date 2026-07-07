@@ -62,3 +62,21 @@ variable "grafana_port" {
   type        = number
   default     = 30001
 }
+variable "enable_observability" {
+  description = "Habilitar el PLG stack (Loki + Promtail + Grafana)"
+  type        = bool
+  default     = true
+}
+
+variable "grafana_admin_password" {
+  description = "Contraseña de admin para Grafana"
+  type        = string
+  default     = "admin123"
+  sensitive   = true
+}
+
+variable "grafana_port" {
+  description = "Puerto NodePort para Grafana"
+  type        = number
+  default     = 30001
+}
