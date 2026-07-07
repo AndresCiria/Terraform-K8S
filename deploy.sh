@@ -1,33 +1,68 @@
 #!/bin/bash
-# deploy.sh - Script de despliegue principal
+# deploy.sh - Despliegue completo
 
 set -e
 
 echo "=== 🚀 Despliegue automático de Kubernetes Platform ==="
 
-# Detectar IP automáticamente
-DETECTED_IP=$(ip -4 addr show scope global | grep inet | awk '{print $2}' | cut -d/ -f1 | head -1)
+# 1. Verificar dependencias
+echo "🔍 Verificando dependencias..."
 
-if [ -z "$DETECTED_IP" ]; then
-    DETECTED_IP="127.0.0.1"
+COMMANDS=("docker" "kind" "kubectl" "helm" "terraform" "make" "git")
+MISSING=()
+
+for cmd in "${COMMANDS[@]}"; do
+    if ! command -v $cmd &> /dev/null; then
+        MISSING+=($cmd)
+    fi
+done
+
+if [ ${#MISSING[@]} -ne 0 ]; then
+    echo "❌ Faltan dependencias: ${MISSING[*]}"
+    echo ""
+    echo "📥 Instalando dependencias automáticamente..."
+    ./scripts/bootstrap.sh
+    echo ""
+    echo "⚠️  Por favor, cierra sesión y vuelve a entrar para que los cambios surtan efecto"
+    echo "   O ejecuta: source ~/.bashrc"
+    exit 1
 fi
 
-echo "📡 IP detectada: $DETECTED_IP"
+echo "✅ Todas las dependencias están instaladas"
 
-# Configurar IP automáticamente si no está configurada
+# 2. Generar configuración si no existe
 if [ ! -f "terraform/terraform.tfvars" ]; then
-    echo "📝 Creando terraform.tfvars automáticamente..."
-    cat > terraform/terraform.tfvars << EOF
-cluster_name         = "k8s-local"
-api_server_address   = "$DETECTED_IP"
-worker_count         = 2
-grafana_admin_password = "admin123"
-loki_storage_size    = "5Gi"
-app_replicas         = 2
-enable_observability = true
-deploy_test_apps     = true
-EOF
+    echo "📝 Generando configuración automática..."
+    ./scripts/auto-config.sh
 fi
 
-# Ejecutar Make
-make full-deploy
+# 3. Mostrar configuración
+echo ""
+echo "📋 Configuración actual:"
+cat terraform/terraform.tfvars
+echo ""
+
+# 4. Desplegar
+make deploy
+
+# 5. Mostrar acceso
+API_IP=$(grep api_server_address terraform/terraform.tfvars | awk -F'=' '{print $2}' | tr -d ' "')
+GRAFANA_PORT=$(grep grafana_port terraform/terraform.tfvars | awk -F'=' '{print $2}' | tr -d ' "')
+GRAFANA_PASS=$(grep grafana_admin_password terraform/terraform.tfvars | awk -F'=' '{print $2}' | tr -d ' "')
+
+echo ""
+echo "=== ✅ Despliegue completado ==="
+echo ""
+echo "📊 Grafana: http://$API_IP:$GRAFANA_PORT"
+echo "   Usuario: admin"
+echo "   Contraseña: $GRAFANA_PASS"
+echo ""
+echo "🔧 Comandos útiles:"
+echo "   make status   - Ver estado"
+echo "   make logs     - Ver logs"
+echo "   make grafana  - Mostrar URL de Grafana"
+echo "   make destroy  - Destruir todo"
+echo ""
+echo "💡 Para usar kubectl:"
+echo "   export KUBECONFIG=$(pwd)/terraform/kubeconfig"
+echo "   kubectl get nodes"

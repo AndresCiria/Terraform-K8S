@@ -1,4 +1,3 @@
-# terraform/outputs.tf
 output "cluster_name" {
   description = "Nombre del cluster"
   value       = var.cluster_name
@@ -6,12 +5,12 @@ output "cluster_name" {
 
 output "api_server" {
   description = "Dirección del API Server"
-  value       = "https://${var.api_server_address}:6443"
+  value       = "https://${var.api_server_address == "0.0.0.0" ? "127.0.0.1" : var.api_server_address}:6443"
 }
 
 output "grafana_url" {
   description = "URL para acceder a Grafana"
-  value       = var.enable_observability ? "http://${var.api_server_address}:30001" : "No disponible"
+  value       = var.enable_observability ? "http://${var.api_server_address == "0.0.0.0" ? "127.0.0.1" : var.api_server_address}:${var.grafana_port}" : "No disponible"
 }
 
 output "grafana_password" {
@@ -22,15 +21,15 @@ output "grafana_password" {
 
 output "kubeconfig_path" {
   description = "Ruta al archivo kubeconfig"
-  value       = local.kubeconfig_path
+  value       = "./kubeconfig"
 }
 
 output "nginx_app_url" {
   description = "URL para acceder a la aplicación Nginx"
-  value       = var.deploy_test_apps ? "http://${var.api_server_address}:30002" : "No disponible"
+  value       = var.deploy_test_apps ? "http://${var.api_server_address == "0.0.0.0" ? "127.0.0.1" : var.api_server_address}:${var.nginx_port}" : "No disponible"
 }
 
 output "hello_api_url" {
   description = "URL para acceder a la API Hello World"
-  value       = var.deploy_test_apps ? "http://${var.api_server_address}:30003" : "No disponible"
+  value       = var.deploy_test_apps ? "http://${var.api_server_address == "0.0.0.0" ? "127.0.0.1" : var.api_server_address}:${var.hello_api_port}" : "No disponible"
 }

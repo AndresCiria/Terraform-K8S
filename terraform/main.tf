@@ -1,5 +1,3 @@
-# terraform/main.tf - Infraestructura completa
-
 terraform {
   required_version = ">= 1.0"
   
@@ -12,14 +10,6 @@ terraform {
       source  = "hashicorp/kubernetes"
       version = "~> 2.23"
     }
-    helm = {
-      source  = "hashicorp/helm"
-      version = "~> 2.9"
-    }
-    local = {
-      source  = "hashicorp/local"
-      version = "~> 2.4"
-    }
     null = {
       source  = "hashicorp/null"
       version = "~> 3.2"
@@ -27,169 +17,141 @@ terraform {
   }
 }
 
-# Proveedores
 provider "kind" {}
 
 provider "kubernetes" {
   config_path = local.kubeconfig_path
 }
 
-provider "helm" {
-  kubernetes {
-    config_path = local.kubeconfig_path
-  }
-}
-
-# Variables locales
 locals {
   kubeconfig_path = "${path.module}/kubeconfig"
-  kind_config     = "${path.module}/kind-config.yaml"
 }
 
-# 1. Generar configuración de Kind
-resource "local_file" "kind_config" {
-  filename = local.kind_config
+# 1. Crear cluster Kind
+resource "kind_cluster" "k8s_cluster" {
+  name = var.cluster_name
   
-  content = templatefile("${path.module}/templates/kind-config.yaml.tpl", {
-    cluster_name         = var.cluster_name
-    api_server_address   = var.api_server_address
-    worker_count        = var.worker_count
-  })
-}
-
-# 2. Crear cluster Kind
-resource "null_resource" "create_cluster" {
-  triggers = {
-    config_hash = filesha256(local.kind_config)
-  }
+  kubeconfig_path = local.kubeconfig_path
   
-  provisioner "local-exec" {
-    command = "kind create cluster --config ${local.kind_config} --name ${var.cluster_name}"
-  }
-  
-  provisioner "local-exec" {
-    when    = destroy
-    command = "kind delete cluster --name ${var.cluster_name}"
-  }
-}
-
-# 3. Obtener kubeconfig
-resource "null_resource" "get_kubeconfig" {
-  depends_on = [null_resource.create_cluster]
-  
-  provisioner "local-exec" {
-    command = "kind get kubeconfig --name ${var.cluster_name} > ${local.kubeconfig_path}"
+  kind_config {
+    kind = "Cluster"
+    api_version = "kind.x-k8s.io/v1alpha4"
+    
+    networking {
+      api_server_address = var.api_server_address == "0.0.0.0" ? "127.0.0.1" : var.api_server_address
+      api_server_port    = 6443
+      pod_subnet         = "10.244.0.0/16"
+      service_subnet     = "10.96.0.0/12"
+    }
+    
+    node {
+      role = "control-plane"
+    }
+    
+    dynamic "node" {
+      for_each = range(var.worker_count)
+      content {
+        role = "worker"
+      }
+    }
   }
 }
 
-data "local_file" "kubeconfig" {
-  depends_on = [null_resource.get_kubeconfig]
-  filename   = local.kubeconfig_path
-}
-
-# 4. Añadir repositorios Helm
-resource "null_resource" "helm_repos" {
-  depends_on = [null_resource.get_kubeconfig]
+# 2. Esperar a que el cluster esté listo
+resource "null_resource" "wait_for_cluster" {
+  depends_on = [kind_cluster.k8s_cluster]
   
   provisioner "local-exec" {
     command = <<-EOT
       export KUBECONFIG=${local.kubeconfig_path}
-      helm repo add grafana https://grafana.github.io/helm-charts
-      helm repo add bitnami https://charts.bitnami.com/bitnami
+      echo "⏳ Esperando a que el cluster esté listo..."
+      kubectl wait --for=condition=ready node --all --timeout=180s
+      echo "✅ Cluster listo"
+    EOT
+  }
+}
+
+# 3. Añadir repositorios Helm
+resource "null_resource" "helm_repos" {
+  depends_on = [null_resource.wait_for_cluster]
+  
+  provisioner "local-exec" {
+    command = <<-EOT
+      export KUBECONFIG=${local.kubeconfig_path}
+      echo "📝 Añadiendo repositorios Helm..."
+      helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true
       helm repo update
     EOT
   }
 }
 
-# 5. Desplegar PLG Stack
-resource "helm_release" "loki" {
+# 4. Desplegar PLG Stack con Helm (usando null_resource)
+resource "null_resource" "deploy_plg" {
   depends_on = [null_resource.helm_repos]
   count      = var.enable_observability ? 1 : 0
   
-  name       = "loki"
-  repository = "https://grafana.github.io/helm-charts"
-  chart      = "loki"
-  namespace  = "monitoring"
-  create_namespace = true
-  
-  values = [
-    templatefile("${path.module}/../helm/loki-values.yaml", {
-      storage_size = var.loki_storage_size
-    })
-  ]
-}
-
-resource "helm_release" "promtail" {
-  depends_on = [helm_release.loki]
-  count      = var.enable_observability ? 1 : 0
-  
-  name       = "promtail"
-  repository = "https://grafana.github.io/helm-charts"
-  chart      = "promtail"
-  namespace  = "monitoring"
-  
-  values = [
-    <<-EOT
-    loki:
-      serviceName: loki
-      scheme: http
+  provisioner "local-exec" {
+    command = <<-EOT
+      export KUBECONFIG=${local.kubeconfig_path}
+      
+      echo "📝 Creando namespace monitoring..."
+      kubectl create namespace monitoring 2>/dev/null || true
+      
+      echo "📝 Instalando Loki (con los mismos parámetros que funcionaron manualmente)..."
+      helm upgrade --install loki grafana/loki \
+        --namespace monitoring \
+        --set deploymentMode=SingleBinary \
+        --set singleBinary.replicas=1 \
+        --set loki.commonConfig.replication_factor=1 \
+        --set loki.storage.type=filesystem \
+        --set persistence.enabled=false \
+        --wait
+      
+      echo "📝 Instalando Promtail..."
+      helm upgrade --install promtail grafana/promtail \
+        --namespace monitoring \
+        --set loki.serviceName=loki \
+        --set loki.scheme=http \
+        --wait
+      
+      echo "📝 Instalando Grafana..."
+      helm upgrade --install grafana grafana/grafana \
+        --namespace monitoring \
+        --set adminPassword=${var.grafana_admin_password} \
+        --set persistence.enabled=false \
+        --set service.type=NodePort \
+        --set service.nodePort=${var.grafana_port} \
+        --wait
+      
+      echo "✅ PLG Stack desplegado correctamente"
     EOT
-  ]
+  }
 }
 
-resource "helm_release" "grafana" {
-  depends_on = [helm_release.loki]
-  count      = var.enable_observability ? 1 : 0
-  
-  name       = "grafana"
-  repository = "https://grafana.github.io/helm-charts"
-  chart      = "grafana"
-  namespace  = "monitoring"
-  
-  values = [
-    templatefile("${path.module}/../helm/grafana-values.yaml", {
-      admin_password = var.grafana_admin_password
-    })
-  ]
-}
-
-# 6. Desplegar aplicaciones de prueba
-resource "helm_release" "nginx_app" {
-  depends_on = [helm_release.loki]
+# 5. Desplegar aplicaciones de prueba
+resource "null_resource" "deploy_apps" {
+  depends_on = [null_resource.deploy_plg]
   count      = var.deploy_test_apps ? 1 : 0
   
-  name       = "nginx-app"
-  repository = "https://charts.bitnami.com/bitnami"
-  chart      = "nginx"
-  namespace  = "default"
-  
-  values = [
-    <<-EOT
-    replicaCount: ${var.app_replicas}
-    service:
-      type: NodePort
-      nodePorts:
-        http: 30002
+  provisioner "local-exec" {
+    command = <<-EOT
+      export KUBECONFIG=${local.kubeconfig_path}
+      
+      echo "📝 Desplegando aplicaciones de prueba..."
+      
+      helm upgrade --install nginx-app bitnami/nginx \
+        --set replicaCount=${var.app_replicas} \
+        --set service.type=NodePort \
+        --set service.nodePorts.http=${var.nginx_port} \
+        --wait
+      
+      helm upgrade --install hello-api bitnami/hello-world \
+        --set replicaCount=${var.app_replicas} \
+        --set service.type=NodePort \
+        --set service.nodePorts.http=${var.hello_api_port} \
+        --wait
+      
+      echo "✅ Aplicaciones desplegadas correctamente"
     EOT
-  ]
-}
-
-resource "helm_release" "hello_app" {
-  depends_on = [helm_release.loki]
-  count      = var.deploy_test_apps ? 1 : 0
-  
-  name       = "hello-api"
-  repository = "https://charts.bitnami.com/bitnami"
-  chart      = "hello-world"
-  namespace  = "default"
-  
-  values = [
-    <<-EOT
-    replicaCount: ${var.app_replicas}
-    service:
-      type: NodePort
-      nodePorts:
-        http: 30003
-    EOT
-  ]
+  }
 }

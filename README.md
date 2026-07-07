@@ -1,20 +1,22 @@
 # Kubernetes Platform con Observabilidad
 
-## 🚀 Despliegue automático en 1 minuto
+## 🚀 Despliegue automático en 2 pasos
 
-### Prerrequisitos
-- Linux/macOS
-- Conexión a Internet
-
-### Instalación
+### Paso 1: Clonar y ejecutar
 
 ```bash
-# Clonar el repositorio
 git clone https://github.com/tu-usuario/terraform-k8s-platform.git
 cd terraform-k8s-platform
+make bootstrap
+make config
+make deploy
 
-# Desplegar todo automáticamente
-./deploy.sh
+export KUBECONFIG=$(pwd)/terraform/kubeconfig
 
-# O usando make
-make full-deploy
+# Ver estado
+kubectl get nodes
+kubectl get pods -n monitoring
+kubectl get svc -n monitoring
+
+# Mostrar acceso
+make grafana
