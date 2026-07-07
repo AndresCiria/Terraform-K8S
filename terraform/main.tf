@@ -121,9 +121,45 @@ resource "null_resource" "deploy_plg" {
         --set persistence.enabled=false \
         --set service.type=NodePort \
         --set service.nodePort=${var.grafana_port} \
+        --set datasources.prometheus.type=prometheus \
+        --set datasources.prometheus.url=http://prometheus-server:80 \
+        --set datasources.prometheus.isDefault=false \
         --wait
       
       echo "✅ PLG Stack desplegado correctamente"
+    EOT
+  }
+}
+
+# 6. Desplegar Prometheus y kube-state-metrics
+resource "null_resource" "deploy_prometheus" {
+  depends_on = [null_resource.deploy_plg]
+  count      = var.enable_observability ? 1 : 0
+  
+  provisioner "local-exec" {
+    command = <<-EOT
+      export KUBECONFIG=${local.kubeconfig_path}
+      
+      echo "📝 Añadiendo repositorio prometheus-community..."
+      helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
+      helm repo update
+      
+      echo "📝 Instalando kube-state-metrics..."
+      helm upgrade --install kube-state-metrics prometheus-community/kube-state-metrics \
+        --namespace monitoring \
+        --set replicas=1 \
+        --wait
+      
+      echo "📝 Instalando Prometheus (modo simple)..."
+      helm upgrade --install prometheus prometheus-community/prometheus \
+        --namespace monitoring \
+        --set alertmanager.enabled=false \
+        --set pushgateway.enabled=false \
+        --set server.persistentVolume.enabled=false \
+        --set server.service.type=ClusterIP \
+        --wait
+      
+      echo "✅ Prometheus y kube-state-metrics desplegados"
     EOT
   }
 }

@@ -20,3 +20,4 @@ kubectl get svc -n monitoring
 
 # Mostrar acceso
 make grafana
+kubectl port-forward -n monitoring svc/grafana 30001:80 --address=0.0.0.0
