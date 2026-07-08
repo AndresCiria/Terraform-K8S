@@ -1,26 +1,5 @@
 terraform {
   required_version = ">= 1.0"
-  
-  required_providers {
-    kind = {
-      source  = "tehcyx/kind"
-      version = "~> 0.3.0"
-    }
-    kubernetes = {
-      source  = "hashicorp/kubernetes"
-      version = "~> 2.23"
-    }
-    null = {
-      source  = "hashicorp/null"
-      version = "~> 3.2"
-    }
-  }
-}
-
-provider "kind" {}
-
-provider "kubernetes" {
-  config_path = local.kubeconfig_path
 }
 
 locals {
@@ -107,6 +86,7 @@ resource "null_resource" "deploy_plg" {
         --namespace monitoring \
         --version 5.42.0 \
         --set deploymentMode=SingleBinary \
+        --set loki.auth_enabled=false \
         --set loki.storage.type=filesystem \
         --set persistence.enabled=false \
         --set agent.enabled=false \

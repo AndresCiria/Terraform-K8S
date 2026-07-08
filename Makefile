@@ -41,7 +41,8 @@ logs: ## Muestra logs de todos los pods
 
 grafana: ## Muestra URL de Grafana
 	@cd $(TF_DIR) && terraform output grafana_url 2>/dev/null || echo "⚠️  Grafana no desplegado"
-
+	@echo "🚀 Iniciando port-forward de Grafana..."
+	@kubectl port-forward -n monitoring svc/grafana 30001:80 --address=0.0.0.0 > /dev/null 2>&1
 test: ## Ejecuta pruebas de verificación
 	@./scripts/test-deployment.sh
 

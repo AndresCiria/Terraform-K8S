@@ -25,6 +25,18 @@ variable "grafana_admin_password" {
   sensitive   = true
 }
 
+variable "grafana_url" {
+  description = "URL de Grafana para el proveedor de Terraform"
+  type        = string
+  default     = "http://localhost:30001"
+}
+
+variable "grafana_port" {
+  description = "Puerto NodePort para Grafana"
+  type        = number
+  default     = 30001
+}
+
 # Aplicaciones de prueba
 variable "deploy_test_apps" {
   description = "Desplegar aplicaciones de prueba"
@@ -55,28 +67,4 @@ variable "enable_observability" {
   description = "Habilitar el PLG stack (Loki + Promtail + Grafana)"
   type        = bool
   default     = true
-}
-
-variable "grafana_port" {
-  description = "Puerto NodePort para Grafana"
-  type        = number
-  default     = 30001
-}
-variable "enable_observability" {
-  description = "Habilitar el PLG stack (Loki + Promtail + Grafana)"
-  type        = bool
-  default     = true
-}
-
-variable "grafana_admin_password" {
-  description = "Contraseña de admin para Grafana"
-  type        = string
-  default     = "admin123"
-  sensitive   = true
-}
-
-variable "grafana_port" {
-  description = "Puerto NodePort para Grafana"
-  type        = number
-  default     = 30001
 }
