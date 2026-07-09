@@ -11,3 +11,4 @@ enable_observability   = true
 grafana_url = "http://172.18.0.4:30001"
 grafana_port           = 30001
 loki_retention_days    = 7
+enable_security = true

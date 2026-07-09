@@ -190,6 +190,44 @@ YAML
   }
 }
 
+# Jenkins
+resource "null_resource" "deploy_jenkins" {
+  depends_on = [null_resource.deploy_plg]
+  count      = var.enable_cicd ? 1 : 0
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      export KUBECONFIG=${local.kubeconfig_path}
+      
+      echo "📝 Añadiendo repositorio Jenkins..."
+      helm repo add jenkins https://charts.jenkins.io 2>/dev/null || true
+      helm repo update
+      
+      echo "📝 Instalando Jenkins..."
+      helm upgrade --install jenkins jenkins/jenkins -n default -f - <<YAML
+controller:
+  serviceType: NodePort
+  nodePort: 30005
+  adminPassword: ${var.jenkins_admin_password}
+  persistence:
+    enabled: true
+    size: 8Gi
+  installPlugins:
+    - kubernetes:latest
+    - workflow-aggregator:latest
+    - git:latest
+    - pipeline-stage-view:latest
+    - slack:latest
+agent:
+  enabled: true
+  image: jenkins/inbound-agent:latest
+YAML
+      
+      echo "✅ Jenkins desplegado en http://$NODE_IP:30005"
+    EOT
+  }
+}
+
 # 5. Desplegar aplicaciones de prueba
 resource "null_resource" "deploy_apps" {
   depends_on = [null_resource.deploy_plg]

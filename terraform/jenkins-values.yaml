@@ -1,0 +1,33 @@
+# jenkins-values.yaml
+controller:
+  image: jenkins/jenkins:lts
+  tag: "2.440.2"
+  serviceType: NodePort
+  nodePort: 30005
+  adminUser: admin
+  adminPassword: "admin123"
+  installPlugins:
+    - kubernetes:latest
+    - workflow-aggregator:latest
+    - git:latest
+    - pipeline-stage-view:latest
+    - slack:latest
+    - blueocean:latest
+  persistence:
+    enabled: true
+    size: 8Gi
+    storageClass: standard
+
+agent:
+  enabled: true
+  image: jenkins/inbound-agent:latest
+  podTemplates:
+    - name: default
+      label: default
+      containers:
+        - name: jnlp
+          image: jenkins/inbound-agent:latest
+          args: ["$(JENKINS_SECRET)", "$(JENKINS_NAME)"]
+          envVars:
+            - name: DOCKER_HOST
+              value: "tcp://localhost:2375"

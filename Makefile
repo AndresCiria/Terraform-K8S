@@ -39,10 +39,20 @@ logs: ## Muestra logs de todos los pods
 	@export KUBECONFIG=$(TF_DIR)/kubeconfig 2>/dev/null || true && \
 		kubectl logs -A --tail=50 2>/dev/null || echo "⚠️  Cluster no disponible"
 
-grafana: ## Muestra URL de Grafana
-	@cd $(TF_DIR) && terraform output grafana_url 2>/dev/null || echo "⚠️  Grafana no desplegado"
-	@echo "🚀 Iniciando port-forward de Grafana..."
-	@kubectl port-forward -n monitoring svc/grafana 30001:80 --address=0.0.0.0 > /dev/null 2>&1
+grafana:
+	@export KUBECONFIG=$(TF_DIR)/kubeconfig 2>/dev/null || true && \
+		echo "📊 URL de Grafana:" && \
+		(cd $(TF_DIR) && terraform output grafana_url 2>/dev/null || echo "⚠️  Grafana no desplegado") && \
+		echo "" && \
+		echo "🚀 Iniciando port-forward de Grafana..." && \
+		kubectl port-forward -n monitoring svc/grafana 30001:80 --address=0.0.0.0 > /dev/null 2>&1 || \
+		(echo "❌ Error: No se pudo iniciar port-forward de Grafana" && exit 1) && \
+		echo "✅ Grafana disponible en http://localhost:30001" && \
+		echo "" && \
+		echo "🔧 Iniciando port-forward de Jenkins..." && \
+		kubectl port-forward -n default svc/jenkins-manual 30005:8080 --address=0.0.0.0 || \
+		(echo "❌ Error: No se pudo iniciar port-forward de Jenkins" && exit 1)
+
 test: ## Ejecuta pruebas de verificación
 	@./scripts/test-deployment.sh
 

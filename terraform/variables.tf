@@ -68,3 +68,22 @@ variable "enable_observability" {
   type        = bool
   default     = true
 }
+
+variable "enable_cicd" {
+  description = "Habilitar Jenkins CI/CD"
+  type        = bool
+  default     = true
+}
+
+variable "jenkins_admin_password" {
+  description = "Contraseña de admin para Jenkins"
+  type        = string
+  default     = "admin123"
+  sensitive   = true
+}
+
+variable "enable_security" {
+  description = "Habilitar los componentes de seguridad (Kyverno, Falco, alertas)"
+  type        = bool
+  default     = true
+}
