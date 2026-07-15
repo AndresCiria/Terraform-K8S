@@ -66,7 +66,7 @@ resource "null_resource" "helm_repos" {
 
 # 4. Desplegar PLG Stack con Helm (usando null_resource)
 resource "null_resource" "deploy_plg" {
-  depends_on = [null_resource.wait_for_cluster]
+  depends_on = [null_resource.helm_repos]
   count      = var.enable_observability ? 1 : 0
 
   provisioner "local-exec" {

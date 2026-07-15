@@ -1,63 +1,46 @@
-# Makefile - Con fallbacks para instalación
-
-.PHONY: help bootstrap deploy destroy status test config config-show config-edit
-
-CONFIG_FILE := terraform/terraform.tfvars
-TF_DIR := terraform
+.PHONY: help bootstrap config deploy destroy status logs clean grafana full-deploy
 
 help: ## Muestra esta ayuda
-	@echo "📋 Comandos disponibles:"
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
+	@echo "Comandos disponibles:"
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 
-bootstrap: ## Instala TODAS las dependencias
+bootstrap: ## Instala todas las dependencias
 	@./scripts/bootstrap.sh
 
-config: ## Genera configuración automáticamente
+config: ## Genera configuración automática
 	@./scripts/auto-config.sh
 
-config-show: ## Muestra la configuración actual
-	@cat $(CONFIG_FILE)
-
-config-edit: ## Edita la configuración
-	@${EDITOR:-nano} $(CONFIG_FILE)
-
-deploy: ## Despliega usando terraform.tfvars
+deploy: ## Despliega todo el stack
 	@echo "🚀 Desplegando..."
-	@cd $(TF_DIR) && terraform apply -auto-approve
+	@cd terraform && terraform init -upgrade
+	@cd terraform && terraform apply -auto-approve
+	@echo "✅ Despliegue completado"
+	@make status
 
 destroy: ## Destruye todo
 	@echo "🗑️  Destruyendo..."
-	@cd $(TF_DIR) && terraform destroy -auto-approve
+	@cd terraform && terraform destroy -auto-approve
+	@kind delete cluster --name k8s-local 2>/dev/null || true
+	@rm -f terraform/kubeconfig
 
 status: ## Muestra el estado del cluster
-	@export KUBECONFIG=$(TF_DIR)/kubeconfig 2>/dev/null || true && \
-		kubectl get nodes 2>/dev/null || echo "⚠️  Cluster no disponible" && \
+	@export KUBECONFIG=$(PWD)/terraform/kubeconfig && \
+		kubectl get nodes && \
 		echo "" && \
-		kubectl get pods -A 2>/dev/null || true
+		kubectl get pods -A
 
 logs: ## Muestra logs de todos los pods
-	@export KUBECONFIG=$(TF_DIR)/kubeconfig 2>/dev/null || true && \
-		kubectl logs -A --tail=50 2>/dev/null || echo "⚠️  Cluster no disponible"
+	@export KUBECONFIG=$(PWD)/terraform/kubeconfig && kubectl logs -A --tail=50
 
-grafana:
-	@export KUBECONFIG=$(TF_DIR)/kubeconfig 2>/dev/null || true && \
-		echo "📊 URL de Grafana:" && \
-		(cd $(TF_DIR) && terraform output grafana_url 2>/dev/null || echo "⚠️  Grafana no desplegado") && \
-		echo "" && \
-		echo "🚀 Iniciando port-forward de Grafana..." && \
-		kubectl port-forward -n monitoring svc/grafana 30001:80 --address=0.0.0.0 > /dev/null 2>&1 || \
-		(echo "❌ Error: No se pudo iniciar port-forward de Grafana" && exit 1) && \
-		echo "✅ Grafana disponible en http://localhost:30001" && \
-		echo "" && \
-		echo "🔧 Iniciando port-forward de Jenkins..." && \
-		kubectl port-forward -n default svc/jenkins-manual 30005:8080 --address=0.0.0.0 || \
-		(echo "❌ Error: No se pudo iniciar port-forward de Jenkins" && exit 1)
+grafana: ## Muestra URL de Grafana
+	@echo "http://192.168.122.163:30001"
+	@echo "Usuario: admin"
+	@echo "Contraseña: admin123"
 
-test: ## Ejecuta pruebas de verificación
-	@./scripts/test-deployment.sh
+port-forward: ## Activa port-forward para Grafana
+	@kubectl port-forward -n monitoring svc/grafana 30001:80 --address=0.0.0.0
 
-full-deploy: bootstrap config deploy status ## Despliegue completo
+clean: ## Limpia archivos temporales
+	@rm -rf terraform/.terraform terraform/.terraform.lock.hcl terraform/terraform.tfstate*
 
-full-clean: destroy ## Limpieza completa
-
-default: help
+full-deploy: bootstrap config deploy ## Despliegue completo

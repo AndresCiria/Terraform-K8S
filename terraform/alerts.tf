@@ -4,16 +4,19 @@
 # Obtener el UID del datasource de Prometheus
 data "grafana_data_source" "prometheus" {
   name = "Prometheus"
+  depends_on = [null_resource.deploy_plg]  # <-- AÑADIR
 }
 
 # Obtener el UID del datasource de Loki
 data "grafana_data_source" "loki" {
   name = "Loki"
+  depends_on = [null_resource.deploy_plg]  # <-- AÑADIR
 }
 
 # Crear una carpeta para las alertas de Kubernetes
 resource "grafana_folder" "kubernetes" {
   title = "Kubernetes Alerts"
+  depends_on = [null_resource.deploy_plg]  # <-- AÑADIR
 }
 
 # ============================================
