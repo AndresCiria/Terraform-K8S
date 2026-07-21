@@ -1,4 +1,4 @@
-# terraform/security.tf - DevSecOps: Kyverno + Falco
+# terraform/security.tf - DevSecOps: Kyverno + Falco (unificado en namespace "security")
 
 # ============================================
 # 1. DESPLEGAR KYVERNO (Políticas como Código)
@@ -16,7 +16,7 @@ resource "null_resource" "deploy_kyverno" {
       helm repo update
       
       helm upgrade --install kyverno kyverno/kyverno \
-        --namespace kyverno \
+        --namespace security \
         --create-namespace \
         --set replicaCount=1
       
@@ -102,7 +102,7 @@ spec:
                   runAsNonRoot: true
 YAML
       
-      echo "✅ Kyverno y políticas desplegadas correctamente"
+      echo "✅ Kyverno y políticas desplegadas correctamente en namespace security"
     EOT
   }
 }
@@ -122,40 +122,83 @@ resource "null_resource" "deploy_falco" {
       helm repo add falcosecurity https://falcosecurity.github.io/charts 2>/dev/null || true
       helm repo update
       
+      # Desinstalar Falco si existe en otro namespace (limpieza)
+      helm uninstall falco -n falco 2>/dev/null || true
+      kubectl delete namespace falco 2>/dev/null || true
+      
+      # Instalar Falco en namespace security
       helm upgrade --install falco falcosecurity/falco \
-        --namespace falco \
+        --namespace security \
         --create-namespace \
         --set falco.jsonOutput=true \
         --set falco.logLevel=info \
         --set falco.fileOutput.enabled=false \
-        --set falco.fileOutput.keepAlive=false \
         --set falco.syslogOutput.enabled=true \
-        --set falco.httpOutput.enabled=true \
-        --set falco.httpOutput.url="http://loki.monitoring:3100/loki/api/v1/push" \
-        --set falco.httpOutput.headers.Content-Type="application/json" \
-        --set falco.rulesFile="/etc/falco/rules.d/custom_rules.yaml" \
-        -f - <<YAML
-# Configuración adicional de Falco (custom rules)
-falco:
-  rules:
+        --set falco.httpOutput.enabled=false \
+        --set falco.falcoctl.rules.install.enabled=false \
+        --set falco.falcoctl.rules.follow.enabled=false \
+        --set falco.watch_config_files=false \
+        --set falco.watch_rules_files=false \
+        --set falco.file_monitoring.enabled=false
+      
+      echo "📝 Aplicando reglas personalizadas de Falco..."
+      kubectl apply -f - <<YAML
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: falco-custom-rules
+  namespace: security
+data:
+  custom_rules.yaml: |
     - rule: Terminal shell in container
       desc: Detecta un shell interactivo en un contenedor
-      condition: spawned_process and proc.name in (ash, bash, sh, ksh, zsh) and proc.args contains "-i" and container.id != host
+      condition: >
+        spawned_process and proc.name in (ash, bash, sh, ksh, zsh) and
+        proc.args contains "-i" and container.id != host
       output: "Shell interactivo ejecutado en contenedor (user=%user.name command=%proc.cmdline)"
       priority: WARNING
+
     - rule: Write below etc
       desc: Escritura no autorizada en /etc
-      condition: open_write and fd.name startswith /etc and container.id != host
+      condition: >
+        open_write and fd.name startswith /etc and container.id != host
       output: "Escritura en /etc (user=%user.name command=%proc.cmdline)"
       priority: WARNING
+
     - rule: Database connection from unexpected source
       desc: Conexión a base de datos desde fuera del clúster
-      condition: fd.type = ipv4 and fd.sip != "127.0.0.1" and fd.dport = 5432
+      condition: >
+        fd.type = ipv4 and fd.sip != "127.0.0.1" and fd.port = 5432
       output: "Conexión a PostgreSQL detectada (ip=%fd.sip port=%fd.sport)"
       priority: CRITICAL
 YAML
       
-      echo "✅ Falco desplegado correctamente"
+      # Parchear el DaemonSet de Falco para montar las reglas personalizadas
+      kubectl patch daemonset falco -n security --type='json' -p='[
+        {
+          "op": "add",
+          "path": "/spec/template/spec/containers/0/volumeMounts/-",
+          "value": {
+            "name": "custom-rules",
+            "mountPath": "/etc/falco/rules.d"
+          }
+        },
+        {
+          "op": "add",
+          "path": "/spec/template/spec/volumes/-",
+          "value": {
+            "name": "custom-rules",
+            "configMap": {
+              "name": "falco-custom-rules"
+            }
+          }
+        }
+      ]' 2>/dev/null || true
+      
+      # Reiniciar Falco para aplicar cambios
+      kubectl rollout restart daemonset falco -n security
+      
+      echo "✅ Falco desplegado correctamente en namespace security"
     EOT
   }
 }
@@ -197,7 +240,7 @@ data:
               - refId: A
                 datasourceUid: __expr__
                 model:
-                  expr: "sum(count_over_time({namespace=~\"default|monitoring\"} |= \"Failed login\" [5m])) > 3"
+                  expr: "sum(count_over_time({namespace=~\"default|monitoring|security\"} |= \"Failed login\" [5m])) > 3"
             for: 1m
             labels:
               severity: warning
@@ -212,7 +255,7 @@ data:
               - refId: A
                 datasourceUid: __expr__
                 model:
-                  expr: "sum(count_over_time({namespace=~\"default|monitoring\"} |= \"sudo\" or |= \"privileged\" [5m])) > 0"
+                  expr: "sum(count_over_time({namespace=~\"default|monitoring|security\"} |= \"sudo\" or |= \"privileged\" [5m])) > 0"
             for: 30s
             labels:
               severity: critical
@@ -227,7 +270,7 @@ data:
               - refId: A
                 datasourceUid: __expr__
                 model:
-                  expr: "sum(count_over_time({namespace=~\"default|monitoring\"} |= \"attack\" or |= \"exploit\" [5m])) > 0"
+                  expr: "sum(count_over_time({namespace=~\"default|monitoring|security\"} |= \"attack\" or |= \"exploit\" [5m])) > 0"
             for: 30s
             labels:
               severity: critical

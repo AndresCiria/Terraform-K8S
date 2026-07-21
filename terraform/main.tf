@@ -117,10 +117,6 @@ config:
           target_label: pod
         - source_labels: [__meta_kubernetes_pod_container_name]
           target_label: container
-        # Elimina o comenta la siguiente línea para recoger TODOS los namespaces
-        # - action: keep
-        #   source_labels: [__meta_kubernetes_namespace]
-        #   regex: "^(default|monitoring)$"
       max_open_files: 50
       file_watch:
         min_poll_frequency: 1s
@@ -184,7 +180,10 @@ YAML
 
       echo "🔄 Reiniciando Grafana para aplicar la configuración..."
       kubectl rollout restart deployment grafana -n monitoring
-      kubectl port-forward -n monitoring svc/grafana 30001:80 --address=0.0.0.0
+      
+      echo "⏳ Esperando a que Grafana esté listo..."
+      kubectl wait --for=condition=ready pod -n monitoring -l app.kubernetes.io/name=grafana --timeout=120s
+
       echo "✅ PLG Stack y Prometheus desplegados correctamente"
     EOT
   }

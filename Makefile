@@ -33,7 +33,7 @@ logs: ## Muestra logs de todos los pods
 	@export KUBECONFIG=$(PWD)/terraform/kubeconfig && kubectl logs -A --tail=50
 
 grafana: ## Muestra URL de Grafana
-	@echo "http://192.168.122.163:30001"
+	@echo "http://192.168.122.53:30001"
 	@echo "Usuario: admin"
 	@echo "Contraseña: admin123"
 

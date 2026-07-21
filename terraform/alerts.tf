@@ -1,31 +1,15 @@
 # terraform/alerts.tf
 # Configuración de alertas en Grafana usando el proveedor de Grafana
 
-# Obtener el UID del datasource de Prometheus
-data "grafana_data_source" "prometheus" {
-  name = "Prometheus"
-  depends_on = [null_resource.deploy_plg]  # <-- AÑADIR
-}
-
-# Obtener el UID del datasource de Loki
-data "grafana_data_source" "loki" {
-  name = "Loki"
-  depends_on = [null_resource.deploy_plg]  # <-- AÑADIR
-}
-
-# Crear una carpeta para las alertas de Kubernetes
-resource "grafana_folder" "kubernetes" {
-  title = "Kubernetes Alerts"
-  depends_on = [null_resource.deploy_plg]  # <-- AÑADIR
-}
-
 # ============================================
 # GRUPO 1: ALERTAS DE DISPONIBILIDAD (CAÍDAS)
 # ============================================
 resource "grafana_rule_group" "availability_alerts" {
   name             = "Availability Alerts"
-  folder_uid       = grafana_folder.kubernetes.uid
+  folder_uid       = "kubernetes-alerts"
   interval_seconds = 60
+
+  depends_on = [null_resource.deploy_plg]
 
   # 1. Pod en CrashLoopBackOff
   rule {
@@ -49,7 +33,7 @@ resource "grafana_rule_group" "availability_alerts" {
         from = 300
         to   = 0
       }
-      datasource_uid = data.grafana_data_source.prometheus.uid
+      datasource_uid = "prometheus"
       model = jsonencode({
         expr          = "kube_pod_status_phase{phase=~\"Failed|Unknown\"} > 0"
         intervalMs    = 1000
@@ -81,7 +65,7 @@ resource "grafana_rule_group" "availability_alerts" {
         from = 300
         to   = 0
       }
-      datasource_uid = data.grafana_data_source.prometheus.uid
+      datasource_uid = "prometheus"
       model = jsonencode({
         expr          = "kube_node_status_condition{condition=\"Ready\",status=\"false\"} > 0"
         intervalMs    = 1000
@@ -112,7 +96,7 @@ resource "grafana_rule_group" "availability_alerts" {
         from = 300
         to   = 0
       }
-      datasource_uid = data.grafana_data_source.prometheus.uid
+      datasource_uid = "prometheus"
       model = jsonencode({
         expr          = "kube_deployment_status_replicas_available == 0"
         intervalMs    = 1000
@@ -143,7 +127,7 @@ resource "grafana_rule_group" "availability_alerts" {
         from = 300
         to   = 0
       }
-      datasource_uid = data.grafana_data_source.prometheus.uid
+      datasource_uid = "prometheus"
       model = jsonencode({
         expr          = "kube_job_status_failed > 0"
         intervalMs    = 1000
@@ -174,7 +158,7 @@ resource "grafana_rule_group" "availability_alerts" {
         from = 300
         to   = 0
       }
-      datasource_uid = data.grafana_data_source.prometheus.uid
+      datasource_uid = "prometheus"
       model = jsonencode({
         expr          = "kube_endpoint_address_available < 1"
         intervalMs    = 1000
@@ -190,9 +174,11 @@ resource "grafana_rule_group" "availability_alerts" {
 # ============================================
 resource "grafana_rule_group" "resource_alerts" {
   name             = "Resource Alerts"
-  folder_uid       = grafana_folder.kubernetes.uid
+  folder_uid       = "kubernetes-alerts"
   interval_seconds = 60
 
+  depends_on = [null_resource.deploy_plg]
+  
   # 1. Alto uso de CPU (pod)
   rule {
     name      = "Alto uso de CPU en pod"
@@ -214,9 +200,9 @@ resource "grafana_rule_group" "resource_alerts" {
         from = 300
         to   = 0
       }
-      datasource_uid = data.grafana_data_source.prometheus.uid
+      datasource_uid = "prometheus"
       model = jsonencode({
-        expr          = "sum(rate(container_cpu_usage_seconds_total{namespace!=\"kube-system\",container!=\"\"}[5m])) by (pod, namespace) / sum(kube_pod_container_resource_limits{resource=\"cpu\"}) by (pod, namespace) > 0.8"
+        expr          = "kube_pod_status_phase{phase=~\"Failed|Unknown\"} > 0"
         intervalMs    = 1000
         maxDataPoints = 43200
         refId         = "A"
@@ -245,7 +231,7 @@ resource "grafana_rule_group" "resource_alerts" {
         from = 300
         to   = 0
       }
-      datasource_uid = data.grafana_data_source.prometheus.uid
+      datasource_uid = "prometheus"
       model = jsonencode({
         expr          = "sum(container_memory_working_set_bytes{namespace!=\"kube-system\",container!=\"\"}) by (pod, namespace) / sum(kube_pod_container_resource_limits{resource=\"memory\"}) by (pod, namespace) > 0.8"
         intervalMs    = 1000
@@ -276,7 +262,7 @@ resource "grafana_rule_group" "resource_alerts" {
         from = 600
         to   = 0
       }
-      datasource_uid = data.grafana_data_source.prometheus.uid
+      datasource_uid = "prometheus"
       model = jsonencode({
         expr          = "(node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 < 10"
         intervalMs    = 1000
@@ -307,7 +293,7 @@ resource "grafana_rule_group" "resource_alerts" {
         from = 600
         to   = 0
       }
-      datasource_uid = data.grafana_data_source.prometheus.uid
+      datasource_uid = "prometheus"
       model = jsonencode({
         expr          = "(node_filesystem_avail_bytes{mountpoint=\"/\"} / node_filesystem_size_bytes{mountpoint=\"/\"}) * 100 < 15"
         intervalMs    = 1000
@@ -323,8 +309,10 @@ resource "grafana_rule_group" "resource_alerts" {
 # ============================================
 resource "grafana_rule_group" "logs_alerts" {
   name             = "Logs Alerts"
-  folder_uid       = grafana_folder.kubernetes.uid
+  folder_uid       = "kubernetes-alerts"
   interval_seconds = 60
+
+  depends_on = [null_resource.deploy_plg]
 
   # 1. Demasiados errores en logs
   rule {
@@ -347,7 +335,7 @@ resource "grafana_rule_group" "logs_alerts" {
         from = 300
         to   = 0
       }
-      datasource_uid = data.grafana_data_source.loki.uid
+      datasource_uid = "loki"
       model = jsonencode({
         expr          = "sum(count_over_time({namespace!=\"kube-system\"} |= \"error\" or |= \"ERROR\" or |= \"panic\" [5m])) > 10"
         intervalMs    = 1000
@@ -378,7 +366,7 @@ resource "grafana_rule_group" "logs_alerts" {
         from = 60
         to   = 0
       }
-      datasource_uid = data.grafana_data_source.loki.uid
+      datasource_uid = "loki"
       model = jsonencode({
         expr          = "sum(count_over_time({namespace!=\"kube-system\"} |= \"panic\" [1m])) > 0"
         intervalMs    = 1000
@@ -409,7 +397,7 @@ resource "grafana_rule_group" "logs_alerts" {
         from = 300
         to   = 0
       }
-      datasource_uid = data.grafana_data_source.loki.uid
+      datasource_uid = "loki"
       model = jsonencode({
         expr          = "sum(count_over_time({namespace!=\"kube-system\"} |= \"Failed login attempt\" [5m])) > 3"
         intervalMs    = 1000
@@ -440,7 +428,7 @@ resource "grafana_rule_group" "logs_alerts" {
         from = 300
         to   = 0
       }
-      datasource_uid = data.grafana_data_source.loki.uid
+      datasource_uid = "loki"
       model = jsonencode({
         expr          = "sum(count_over_time({namespace!=\"kube-system\"} |= \"restart\" or |= \"Restarting\" [5m])) > 3"
         intervalMs    = 1000
@@ -456,9 +444,11 @@ resource "grafana_rule_group" "logs_alerts" {
 # ============================================
 resource "grafana_rule_group" "service_alerts" {
   name             = "Service Alerts"
-  folder_uid       = grafana_folder.kubernetes.uid
+  folder_uid       = "kubernetes-alerts"
   interval_seconds = 60
 
+  depends_on = [null_resource.deploy_plg]
+  
   # 1. Errores HTTP 5xx
   rule {
     name      = "Errores HTTP 5xx detectados"
@@ -480,7 +470,7 @@ resource "grafana_rule_group" "service_alerts" {
         from = 300
         to   = 0
       }
-      datasource_uid = data.grafana_data_source.prometheus.uid
+      datasource_uid = "prometheus"
       model = jsonencode({
         expr          = "sum(rate(nginx_ingress_controller_requests{status=~\"5..\"}[5m])) > 5"
         intervalMs    = 1000
@@ -511,7 +501,7 @@ resource "grafana_rule_group" "service_alerts" {
         from = 604800
         to   = 0
       }
-      datasource_uid = data.grafana_data_source.prometheus.uid
+      datasource_uid = "prometheus"
       model = jsonencode({
         expr          = "(avg by (kubernetes_ingress_name) (nginx_ingress_controller_ssl_expire_time_seconds) - time()) < 604800"
         intervalMs    = 1000

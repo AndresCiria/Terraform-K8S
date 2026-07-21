@@ -1,5 +1,5 @@
 cluster_name           = "k8s-local"
-api_server_address     = "192.168.122.163"
+api_server_address     = "192.168.122.53"
 worker_count           = 2
 grafana_admin_password = "admin123"
 loki_storage_size      = "5Gi"
@@ -8,7 +8,7 @@ app_replicas           = 2
 nginx_port             = 30002
 hello_api_port         = 30003
 enable_observability   = true
-grafana_url = "http://172.18.0.4:30001"
+grafana_url = "http://192.168.122.53:30001"
 grafana_port           = 30001
 loki_retention_days    = 7
 enable_security = true
