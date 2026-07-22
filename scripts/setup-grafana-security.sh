@@ -1,23 +1,25 @@
 #!/bin/bash
-# setup-grafana-security.sh
-# Configuración completa de Grafana para seguridad
 
 cd ~/Terraform-k8s/terraform
 export KUBECONFIG=$(pwd)/kubeconfig
-
-echo "🔧 Configurando Grafana para seguridad..."
 
 GRAFANA_URL="http://192.168.122.53:30001"
 GRAFANA_USER="admin"
 GRAFANA_PASS="admin123"
 FOLDER_UID="ffsozcllt70n4a"
+LOKI_UID="ffsoxnir2g934a"
+PROMETHEUS_UID="efsoxsiavp8u8d"
 
-echo ""
-echo "Configurando datasources..."
+echo "Configurando Grafana para seguridad..."
 
+if ! curl -s -u "$GRAFANA_USER:$GRAFANA_PASS" "$GRAFANA_URL/api/health" | grep -q "ok"; then
+    echo "Error: Grafana no responde"
+    exit 1
+fi
+
+echo "Creando datasource Loki..."
 LOKI_EXISTS=$(curl -s -u "$GRAFANA_USER:$GRAFANA_PASS" "$GRAFANA_URL/api/datasources/name/Loki" | jq -r '.uid' 2>/dev/null)
 if [ -z "$LOKI_EXISTS" ] || [ "$LOKI_EXISTS" == "null" ]; then
-    echo "📝 Creando datasource Loki..."
     curl -s -X POST -u "$GRAFANA_USER:$GRAFANA_PASS" "$GRAFANA_URL/api/datasources" \
       -H "Content-Type: application/json" \
       -d '{
@@ -31,12 +33,12 @@ if [ -z "$LOKI_EXISTS" ] || [ "$LOKI_EXISTS" == "null" ]; then
       }' > /dev/null
     echo "Datasource Loki creado"
 else
-    echo "Datasource Loki ya existe (UID: $LOKI_EXISTS)"
+    echo "Datasource Loki ya existe"
 fi
 
+echo "Creando datasource Prometheus..."
 PROM_EXISTS=$(curl -s -u "$GRAFANA_USER:$GRAFANA_PASS" "$GRAFANA_URL/api/datasources/name/Prometheus" | jq -r '.uid' 2>/dev/null)
 if [ -z "$PROM_EXISTS" ] || [ "$PROM_EXISTS" == "null" ]; then
-    echo "📝 Creando datasource Prometheus..."
     curl -s -X POST -u "$GRAFANA_USER:$GRAFANA_PASS" "$GRAFANA_URL/api/datasources" \
       -H "Content-Type: application/json" \
       -d '{
@@ -50,82 +52,113 @@ if [ -z "$PROM_EXISTS" ] || [ "$PROM_EXISTS" == "null" ]; then
       }' > /dev/null
     echo "Datasource Prometheus creado"
 else
-    echo "Datasource Prometheus ya existe (UID: $PROM_EXISTS)"
+    echo "Datasource Prometheus ya existe"
 fi
 
-echo ""
 echo "Creando alertas de seguridad..."
-
-create_alert() {
-    local TITLE="$1"
-    local EXPR="$2"
-    local SEVERITY="$3"
-    local SUMMARY="$4"
-    local DESCRIPTION="$5"
-    local FOR="${6:-1m}"
-    
-    echo "   - $TITLE"
-    curl -s -X POST -u "$GRAFANA_USER:$GRAFANA_PASS" "$GRAFANA_URL/api/v1/provisioning/alert-rules" \
-      -H "Content-Type: application/json" \
-      -d "{
-        \"title\": \"$TITLE\",
-        \"condition\": \"A\",
-        \"data\": [
-          {
-            \"refId\": \"A\",
-            \"relativeTimeRange\": {
-              \"from\": 300,
-              \"to\": 0
-            },
-            \"datasourceUid\": \"loki\",
-            \"model\": {
-              \"expr\": \"$EXPR\",
-              \"intervalMs\": 1000,
-              \"maxDataPoints\": 43200,
-              \"refId\": \"A\"
+curl -X POST -u "$GRAFANA_USER:$GRAFANA_PASS" "$GRAFANA_URL/api/ruler/grafana/api/v1/rules/$FOLDER_UID" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"name\": \"Security Alerts\",
+    \"interval\": \"60s\",
+    \"rules\": [
+      {
+        \"grafana_alert\": {
+          \"title\": \"Acceso no autorizado detectado\",
+          \"condition\": \"A\",
+          \"data\": [
+            {
+              \"refId\": \"A\",
+              \"relativeTimeRange\": {
+                \"from\": 300,
+                \"to\": 0
+              },
+              \"datasourceUid\": \"$LOKI_UID\",
+              \"model\": {
+                \"expr\": \"sum(count_over_time({namespace=~\\\"default|monitoring|security\\\"} |= \\\"Failed login\\\" [5m])) > 3\",
+                \"intervalMs\": 1000,
+                \"maxDataPoints\": 43200,
+                \"refId\": \"A\"
+              }
             }
+          ],
+          \"for\": \"60s\",
+          \"labels\": {
+            \"severity\": \"warning\",
+            \"namespace\": \"security\"
+          },
+          \"annotations\": {
+            \"summary\": \"Intentos de login fallidos detectados\",
+            \"description\": \"Se han detectado mas de 3 intentos de login fallidos en los ultimos 5 minutos\"
           }
-        ],
-        \"for\": \"$FOR\",
-        \"labels\": {
-          \"severity\": \"$SEVERITY\",
-          \"namespace\": \"security\"
-        },
-        \"annotations\": {
-          \"summary\": \"$SUMMARY\",
-          \"description\": \"$DESCRIPTION\"
-        },
-        \"folderUID\": \"$FOLDER_UID\"
-      }" | jq -r '.message' 2>/dev/null | grep -v "null" || echo "   ✅ Creada"
-}
+        }
+      },
+      {
+        \"grafana_alert\": {
+          \"title\": \"Posible escalada de privilegios\",
+          \"condition\": \"A\",
+          \"data\": [
+            {
+              \"refId\": \"A\",
+              \"relativeTimeRange\": {
+                \"from\": 300,
+                \"to\": 0
+              },
+              \"datasourceUid\": \"$LOKI_UID\",
+              \"model\": {
+                \"expr\": \"sum(count_over_time({namespace=~\\\"default|monitoring|security\\\"} |= \\\"sudo\\\" or |= \\\"privileged\\\" [5m])) > 0\",
+                \"intervalMs\": 1000,
+                \"maxDataPoints\": 43200,
+                \"refId\": \"A\"
+              }
+            }
+          ],
+          \"for\": \"30s\",
+          \"labels\": {
+            \"severity\": \"critical\",
+            \"namespace\": \"security\"
+          },
+          \"annotations\": {
+            \"summary\": \"Escalada de privilegios detectada\",
+            \"description\": \"Se ha detectado una posible escalada de privilegios\"
+          }
+        }
+      },
+      {
+        \"grafana_alert\": {
+          \"title\": \"Posible ataque detectado\",
+          \"condition\": \"A\",
+          \"data\": [
+            {
+              \"refId\": \"A\",
+              \"relativeTimeRange\": {
+                \"from\": 300,
+                \"to\": 0
+              },
+              \"datasourceUid\": \"$LOKI_UID\",
+              \"model\": {
+                \"expr\": \"sum(count_over_time({namespace=~\\\"default|monitoring|security\\\"} |= \\\"attack\\\" or |= \\\"exploit\\\" [5m])) > 0\",
+                \"intervalMs\": 1000,
+                \"maxDataPoints\": 43200,
+                \"refId\": \"A\"
+              }
+            }
+          ],
+          \"for\": \"30s\",
+          \"labels\": {
+            \"severity\": \"critical\",
+            \"namespace\": \"security\"
+          },
+          \"annotations\": {
+            \"summary\": \"Posible ataque detectado\",
+            \"description\": \"Se ha detectado actividad sospechosa que podria indicar un ataque\"
+          }
+        }
+      }
+    ]
+  }" | jq '.'
 
-create_alert \
-  "Acceso no autorizado detectado" \
-  "sum(count_over_time({namespace=~\"default|monitoring|security\"} |= \"Failed login\" [5m])) > 3" \
-  "warning" \
-  "Intentos de login fallidos detectados" \
-  "Se han detectado más de 3 intentos de login fallidos en los últimos 5 minutos" \
-  "1m"
-
-create_alert \
-  "Posible escalada de privilegios" \
-  "sum(count_over_time({namespace=~\"default|monitoring|security\"} |= \"sudo\" or |= \"privileged\" [5m])) > 0" \
-  "critical" \
-  "Escalada de privilegios detectada" \
-  "Se ha detectado una posible escalada de privilegios" \
-  "30s"
-
-create_alert \
-  "Posible ataque detectado" \
-  "sum(count_over_time({namespace=~\"default|monitoring|security\"} |= \"attack\" or |= \"exploit\" [5m])) > 0" \
-  "critical" \
-  "Posible ataque detectado" \
-  "Se ha detectado actividad sospechosa que podría indicar un ataque" \
-  "30s"
-
-echo ""
-echo "Creando Dashboard de Seguridad..."
-
+echo "Creando dashboard de seguridad..."
 DASHBOARD_JSON=$(cat <<'EOF'
 {
   "dashboard": {
@@ -187,27 +220,10 @@ curl -s -X POST -u "$GRAFANA_USER:$GRAFANA_PASS" "$GRAFANA_URL/api/dashboards/db
   -H "Content-Type: application/json" \
   -d "$DASHBOARD_JSON" > /dev/null
 
-echo "Dashboard creado"
-
-echo ""
-echo "=========================================="
-echo "Configuración completada"
-echo "=========================================="
-echo ""
+echo "Configuracion completada"
 echo "Acceso a Grafana: http://192.168.122.53:30001"
-echo "   Usuario: admin"
-echo "   Contraseña: admin123"
-echo ""
-echo "Componentes configurados:"
-echo "   ✅ Datasource: Loki (http://loki:3100)"
-echo "   ✅ Datasource: Prometheus (http://prometheus-server:80)"
-echo "   ✅ Carpeta: Security Alerts (UID: $FOLDER_UID)"
-echo "   ✅ Alerta: Acceso no autorizado detectado"
-echo "   ✅ Alerta: Posible escalada de privilegios"
-echo "   ✅ Alerta: Posible ataque detectado"
-echo "   ✅ Dashboard: Security Dashboard"
-echo ""
-echo "Para ver logs de Falco:"
-echo "   1. Ve a Explore"
-echo "   2. Selecciona datasource Loki"
-echo "   3. Query: {namespace=\"security\"} |= \"Critical\""
+echo "Usuario: admin"
+echo "Contraseña: admin123"
+echo "Carpeta Security Alerts UID: $FOLDER_UID"
+echo "Datasource Loki UID: $LOKI_UID"
+echo "Datasource Prometheus UID: $PROMETHEUS_UID"
