@@ -1,6 +1,6 @@
 # Kubernetes Platform con Observabilidad
 
-## 🚀 Despliegue automático en 2 pasos
+## Despliegue automático en 2 pasos
 
 ### Paso 1: Clonar y ejecutar
 
@@ -38,19 +38,15 @@ kubectl scale deployment loki-grafana-agent-operator -n monitoring --replicas=0
 kubectl delete daemonset loki-logs -n monitoring 2>/dev/null || true
 
 
-# 1. Asegurar que el port-forward está activo
 kubectl port-forward -n monitoring svc/grafana 30001:80 --address=0.0.0.0
 kubectl port-forward -n default svc/jenkins-manual 30005:8080 --address=0.0.0.0
 
-# 2. En otra terminal, aplicar Terraform
 cd terraform
-terraform plan   # Ver qué va a crear
-terraform apply  # Crear las alertas
+terraform plan
+terraform apply
 
-# 1. Desinstalar Helm
 helm uninstall jenkins -n default
 
-# 2. Crear deployment manual
 cat <<EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment

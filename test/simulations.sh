@@ -23,7 +23,7 @@ cat > simulate-events.sh << 'EOF'
 #!/bin/bash
 # simulate-events.sh - Genera eventos continuos para probar alertas
 
-echo "🚀 Generando eventos de prueba..."
+echo "Generando eventos de prueba..."
 
 # 1. Generar logs de error en log-generator
 kubectl exec -it deployment/log-generator -- sh -c "echo 'ERROR: $(date) - Simulated failure' >> /dev/termination-log 2>/dev/null || true" 2>/dev/null
@@ -38,14 +38,14 @@ if [ -n "$API_IP" ]; then
   for i in {1..50}; do
     STATUS=$(shuf -i 200-500 -n 1)
     if [ $STATUS -gt 400 ]; then
-      echo "🔴 Error $STATUS en llamada $i a API"
+      echo "Error $STATUS en llamada $i a API"
       kubectl run curl-$i --image=curlimages/curl --rm --restart=Never -- curl -s -o /dev/null -w "%{http_code}\n" http://$API_IP:80 2>/dev/null || true
     fi
     sleep 1
   done
 fi
 
-echo "✅ Eventos generados. Revisa Grafana para ver alertas."
+echo "Eventos generados. Revisa Grafana para ver alertas."
 EOF
 
 chmod +x simulate-events.sh

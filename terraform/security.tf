@@ -11,7 +11,7 @@ resource "null_resource" "deploy_kyverno" {
     command = <<-EOT
       export KUBECONFIG=${local.kubeconfig_path}
       
-      echo "📝 Instalando Kyverno (motor de políticas)..."
+      echo "Instalando Kyverno (motor de políticas)..."
       helm repo add kyverno https://kyverno.github.io/kyverno/ 2>/dev/null || true
       helm repo update
       
@@ -20,7 +20,7 @@ resource "null_resource" "deploy_kyverno" {
         --create-namespace \
         --set replicaCount=1
       
-      echo "📝 Aplicando políticas de seguridad..."
+      echo "Aplicando políticas de seguridad..."
       kubectl apply -f - <<YAML
 ---
 apiVersion: kyverno.io/v1
@@ -102,7 +102,7 @@ spec:
                   runAsNonRoot: true
 YAML
       
-      echo "✅ Kyverno y políticas desplegadas correctamente en namespace security"
+      echo "Kyverno y políticas desplegadas correctamente en namespace security"
     EOT
   }
 }
@@ -118,7 +118,7 @@ resource "null_resource" "deploy_falco" {
     command = <<-EOT
       export KUBECONFIG=${local.kubeconfig_path}
       
-      echo "📝 Instalando Falco (detección de amenazas)..."
+      echo "Instalando Falco (detección de amenazas)..."
       helm repo add falcosecurity https://falcosecurity.github.io/charts 2>/dev/null || true
       helm repo update
       
@@ -141,7 +141,7 @@ resource "null_resource" "deploy_falco" {
         --set falco.watch_rules_files=false \
         --set falco.file_monitoring.enabled=false
       
-      echo "📝 Aplicando reglas personalizadas de Falco..."
+      echo "Aplicando reglas personalizadas de Falco..."
       kubectl apply -f - <<YAML
 apiVersion: v1
 kind: ConfigMap
@@ -198,7 +198,7 @@ YAML
       # Reiniciar Falco para aplicar cambios
       kubectl rollout restart daemonset falco -n security
       
-      echo "✅ Falco desplegado correctamente en namespace security"
+      echo "Falco desplegado correctamente en namespace security"
     EOT
   }
 }
@@ -214,7 +214,7 @@ resource "null_resource" "security_alerts" {
     command = <<-EOT
       export KUBECONFIG=${local.kubeconfig_path}
       
-      echo "📝 Configurando alertas de seguridad en Grafana..."
+      echo "Configurando alertas de seguridad en Grafana..."
       
       # Añadir reglas de alerta de seguridad
       kubectl apply -f - <<YAML
@@ -279,10 +279,10 @@ data:
               description: "Se ha detectado actividad sospechosa que podría indicar un ataque"
 YAML
       
-      echo "🔄 Reiniciando Grafana para aplicar alertas..."
+      echo "Reiniciando Grafana para aplicar alertas..."
       kubectl rollout restart deployment grafana -n monitoring
       
-      echo "✅ Alertas de seguridad configuradas"
+      echo "Alertas de seguridad configuradas"
     EOT
   }
 }

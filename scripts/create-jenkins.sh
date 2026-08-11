@@ -1,13 +1,16 @@
 cd ~/Terraform-k8s/terraform
 export KUBECONFIG=$(pwd)/kubeconfig
 
-# 1. Eliminar todo
+kubectl scale deployment -n security kyverno-admission-controller --replicas=0
+kubectl scale deployment -n security kyverno-background-controller --replicas=0
+kubectl scale deployment -n security kyverno-cleanup-controller --replicas=0
+kubectl scale deployment -n security kyverno-reports-controller --replicas=0
+
 helm uninstall jenkins -n default 2>/dev/null || true
 kubectl delete statefulset jenkins -n default 2>/dev/null || true
 kubectl delete pod jenkins-0 -n default 2>/dev/null || true
 kubectl delete pvc jenkins -n default 2>/dev/null || true
 
-# 2. Crear deployment manual con la imagen LTS JDK17
 cat <<EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
@@ -67,14 +70,17 @@ spec:
     app: jenkins
 EOF
 
-# 3. Verificar
 echo "Esperando 30 segundos..."
 sleep 30
 
 kubectl get pods -n default | grep jenkins
 kubectl get svc -n default | grep jenkins
 
-# 4. Obtener contraseña
+kubectl scale deployment -n security kyverno-admission-controller --replicas=1
+kubectl scale deployment -n security kyverno-background-controller --replicas=1
+kubectl scale deployment -n security kyverno-cleanup-controller --replicas=1
+kubectl scale deployment -n security kyverno-reports-controller --replicas=1
+
 JENKINS_PASS=$(kubectl exec -n default deployment/jenkins -- cat /var/jenkins_home/secrets/initialAdminPassword 2>/dev/null)
 echo ""
 echo "Jenkins URL: http://192.168.122.53:30005/jenkins"

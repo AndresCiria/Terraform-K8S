@@ -43,9 +43,9 @@ resource "null_resource" "wait_for_cluster" {
   provisioner "local-exec" {
     command = <<-EOT
       export KUBECONFIG=${local.kubeconfig_path}
-      echo "⏳ Esperando a que el cluster esté listo..."
+      echo "Esperando a que el cluster esté listo..."
       kubectl wait --for=condition=ready node --all --timeout=180s
-      echo "✅ Cluster listo"
+      echo "Cluster listo"
     EOT
   }
 }
@@ -57,7 +57,7 @@ resource "null_resource" "helm_repos" {
   provisioner "local-exec" {
     command = <<-EOT
       export KUBECONFIG=${local.kubeconfig_path}
-      echo "📝 Añadiendo repositorios Helm..."
+      echo "Añadiendo repositorios Helm..."
       helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true
       helm repo update
     EOT
@@ -73,15 +73,15 @@ resource "null_resource" "deploy_plg" {
     command = <<-EOT
       export KUBECONFIG=${local.kubeconfig_path}
 
-      echo "📝 Creando namespace monitoring..."
+      echo "Creando namespace monitoring..."
       kubectl create namespace monitoring 2>/dev/null || true
 
-      echo "📝 Añadiendo repositorios Helm..."
+      echo "Añadiendo repositorios Helm..."
       helm repo add grafana https://grafana.github.io/helm-charts 2>/dev/null || true
       helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
       helm repo update
 
-      echo "📝 Instalando Loki (versión 5.42.0, sin gateway ni agente)..."
+      echo "Instalando Loki (versión 5.42.0, sin gateway ni agente)..."
       helm upgrade --install loki grafana/loki \
         --namespace monitoring \
         --version 5.42.0 \
@@ -93,11 +93,11 @@ resource "null_resource" "deploy_plg" {
         --set gateway.enabled=false \
         --wait
 
-      echo "🧹 Eliminando agentes problemáticos de Loki..."
+      echo "Eliminando agentes problemáticos de Loki..."
       kubectl scale deployment loki-grafana-agent-operator -n monitoring --replicas=0 2>/dev/null || true
       kubectl delete daemonset loki-logs -n monitoring 2>/dev/null || true
 
-      echo "📝 Instalando Promtail (con límite de archivos abiertos)..."
+      echo "Instalando Promtail (con límite de archivos abiertos)..."
       helm upgrade --install promtail grafana/promtail \
         --namespace monitoring \
         -f - <<YAML
@@ -130,7 +130,7 @@ resources:
     cpu: 100m
 YAML
 
-      echo "📝 Instalando Prometheus y kube-state-metrics..."
+      echo "Instalando Prometheus y kube-state-metrics..."
       helm upgrade --install prometheus prometheus-community/prometheus \
         --namespace monitoring \
         --set alertmanager.enabled=false \
@@ -144,7 +144,7 @@ YAML
         --set replicas=1 \
         --wait
 
-      echo "📝 Instalando Grafana con datasources preconfigurados..."
+      echo "Instalando Grafana con datasources preconfigurados..."
       helm upgrade --install grafana grafana/grafana \
         --namespace monitoring \
         --set adminPassword=${var.grafana_admin_password} \
@@ -153,7 +153,7 @@ YAML
         --set service.nodePort=${var.grafana_port} \
         --wait
 
-      echo "📝 Configurando datasources en Grafana..."
+      echo "Configurando datasources en Grafana..."
       kubectl apply -f - <<YAML
 apiVersion: v1
 kind: ConfigMap
@@ -178,13 +178,13 @@ data:
         isDefault: false
 YAML
 
-      echo "🔄 Reiniciando Grafana para aplicar la configuración..."
+      echo "Reiniciando Grafana para aplicar la configuración..."
       kubectl rollout restart deployment grafana -n monitoring
       
-      echo "⏳ Esperando a que Grafana esté listo..."
+      echo "Esperando a que Grafana esté listo..."
       kubectl wait --for=condition=ready pod -n monitoring -l app.kubernetes.io/name=grafana --timeout=120s
 
-      echo "✅ PLG Stack y Prometheus desplegados correctamente"
+      echo "PLG Stack y Prometheus desplegados correctamente"
     EOT
   }
 }
@@ -198,11 +198,11 @@ resource "null_resource" "deploy_jenkins" {
     command = <<-EOT
       export KUBECONFIG=${local.kubeconfig_path}
       
-      echo "📝 Añadiendo repositorio Jenkins..."
+      echo "Añadiendo repositorio Jenkins..."
       helm repo add jenkins https://charts.jenkins.io 2>/dev/null || true
       helm repo update
       
-      echo "📝 Instalando Jenkins..."
+      echo "Instalando Jenkins..."
       helm upgrade --install jenkins jenkins/jenkins -n default -f - <<YAML
 controller:
   serviceType: NodePort
@@ -222,7 +222,7 @@ agent:
   image: jenkins/inbound-agent:latest
 YAML
       
-      echo "✅ Jenkins desplegado en http://$NODE_IP:30005"
+      echo "Jenkins desplegado en http://$NODE_IP:30005"
     EOT
   }
 }
@@ -236,7 +236,7 @@ resource "null_resource" "deploy_apps" {
     command = <<-EOT
       export KUBECONFIG=${local.kubeconfig_path}
       
-      echo "📝 Desplegando aplicaciones de prueba..."
+      echo "Desplegando aplicaciones de prueba..."
       
       helm upgrade --install nginx-app bitnami/nginx \
         --set replicaCount=${var.app_replicas} \
@@ -250,7 +250,7 @@ resource "null_resource" "deploy_apps" {
         --set service.nodePorts.http=${var.hello_api_port} \
         --wait
       
-      echo "✅ Aplicaciones desplegadas correctamente"
+      echo "Aplicaciones desplegadas correctamente"
     EOT
   }
 }
