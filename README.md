@@ -1,4 +1,4 @@
-# k8s-devsecops-platform
+# Terraform-K8S
 
 **Plataforma integral de automatización para Kubernetes con observabilidad, seguridad y CI/CD**
 
@@ -49,7 +49,7 @@ Si solo deseas probar el clúster Kind sin OpenStack, los requisitos son menores
 ## Estructura del Repositorio
 
 El repositorio se organiza de forma modular para facilitar el mantenimiento y la evolución:
-
+```
 k8s-devsecops-platform/
 ├── Makefile                 # Orquestación principal (bootstrap, config, deploy, etc.)
 ├── README.md                # Esta documentación
@@ -87,7 +87,7 @@ k8s-devsecops-platform/
     ├── log_simulator.sh
     ├── pod_crash.sh
     └── simulations.sh
-
+```
 ---
 
 ## Despliegue Rápido
